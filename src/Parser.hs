@@ -34,9 +34,9 @@ parseAtom = do
                          "#f" -> Scheme.Bool False
                          _    -> Scheme.Atom atom
 
--- TODO: rewrite using bind
 parseNumber :: Parser Scheme.LispVal
-parseNumber = liftM (Scheme.Number . read) $ many1 digit
+parseNumber = many1 digit
+    >>= return . Scheme.Number . read
 
 parseExpr :: Parser Scheme.LispVal
 parseExpr = parseAtom
