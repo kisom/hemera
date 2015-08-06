@@ -2,6 +2,7 @@ module Parser (
   readExpr
 ) where
 
+import Control.Applicative ((<$>))
 import Control.Monad
 import Text.ParserCombinators.Parsec hiding (spaces)
 import qualified Scheme
@@ -42,3 +43,25 @@ parseExpr :: Parser Scheme.LispVal
 parseExpr = parseAtom
          <|> parseString
          <|> parseNumber
+         <|> parseQuoted
+         <|> do char '('
+                x <- try parseList <|> parseDottedList
+                char ')'
+                return x
+
+parseList :: Parser Scheme.LispVal
+parseList =  Scheme.List <$> sepBy parseExpr spaces
+
+parseDottedList :: Parser Scheme.LispVal
+parseDottedList = do
+    head <- endBy parseExpr spaces
+    tail <- char '.' >> spaces >> parseExpr
+    return $ Scheme.DottedList head tail
+
+parseQuoted :: Parser Scheme.LispVal
+parseQuoted = do
+    char '\''
+    x <- parseExpr
+    return $ Scheme.List [Scheme.Atom "quote", x]
+
+
