@@ -5,6 +5,7 @@
 
 > import Control.Applicative ((<$>))
 > import Control.Monad
+> import qualified Control.Monad.Error as E
 > import Text.ParserCombinators.Parsec hiding (spaces)
 > import qualified Scheme
 
@@ -16,10 +17,10 @@
 Reading an expression returns a `String` for now: either the error
 that occurred or whether a value was successfully parsed.
 
-> readExpr :: String -> Scheme.LispVal
+> readExpr :: String -> Scheme.Imperfect Scheme.LispVal
 > readExpr input = case parse parseExpr "lisp" input of
->     Left err  -> Scheme.String $ "No match: " ++ show err
->     Right val -> val
+>     Left err  -> E.throwError $ Scheme.Syntax err
+>     Right val -> return val
 
 > parseLisp :: String -> Either String Scheme.LispVal
 > parseLisp input = case parse parseExpr "lisp" input of
