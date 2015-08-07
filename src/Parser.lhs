@@ -26,15 +26,29 @@ them all.
 > spaces :: Parser ()
 > spaces = skipMany1 space
 
-A Scheme string will be enclosed in double quotes and contains any
-non-quote characters.
+Sometimes, it's useful to convert a single character to a string.
+
+> parserCharToString :: Parser Char -> Parser String
+> parserCharToString c = c >>= return . (:"")
+
+An escaped character is any single character preceded by a backquote.
+
+> parseEscapedChar :: Parser String
+> parseEscapedChar = do
+>     char '\\'
+>     x <- oneOf "\"\\nrt"
+>     return $ '\\' : [x]
+
+A Scheme string will be enclosed in double quotes and contains a
+sequence of escaped and unescaped characters.
 
 > parseString :: Parser Scheme.LispVal
 > parseString = do
->                 char '"'
->                 x <- many (noneOf "\"")
->                 char '"'
->                 return $ Scheme.String x
+>     char '"'
+>     x <- many (unquoted <|> parseEscapedChar)
+>     char '"'
+>     return . Scheme.String $ concat x
+>   where unquoted    = parserCharToString $ noneOf "\""
 
 An atom is the basic unit. The case of true and false (the literals #t
 and #f) need to be checked for, otherwise, the atom should be returned directly 
