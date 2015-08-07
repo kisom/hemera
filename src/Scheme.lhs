@@ -92,9 +92,9 @@ needs to return a function corresponding to the string.
 primitives is a mapping of string names to all the builtin functions:
 
 > primitives :: [(String, [LispVal] -> Imperfect LispVal)]
-> primitives = [("+",              numericBinOp (+))
+> primitives = [("+",              numericOp0 (+) 0)
 >              ,("-",              numericBinOp (-))
->              ,("*",              numericBinOp (*))
+>              ,("*",              numericOp0 (*) 1)
 >              ,("/",              numericBinOp div)
 >              ,("mod",            numericBinOp mod)
 >              ,("quotient",       numericBinOp quot)
@@ -109,12 +109,20 @@ primitives is a mapping of string names to all the builtin functions:
 >              ,("type-of",        typeString)
 >              ]
 
+numericOp0 is a function to apply a numeric function to list of zero
+or more arguments.
+
+> numericOp0 :: (Integer -> Integer -> Integer) -> Integer -> [LispVal] -> Imperfect LispVal
+> numericOp0 f def []     = return $ Number def
+> numericOp0 f def (n:[]) = unpackNumber n >>= (return . Number . f def)
+> numericOp0 f _ ns       = mapM unpackNumber ns >>= return . Number . foldl1 f
+
 numericBinOp is a function to apply a numeric function to list of arguments.
 
 > numericBinOp :: (Integer -> Integer -> Integer) -> [LispVal] -> Imperfect LispVal
-> numericBinOp f []    = E.throwError $ NumArgs 2 []
-> numericBinOp f v@[_] = E.throwError $ NumArgs 2 v
-> numericBinOp f ns = mapM unpackNumber ns >>= return . Number . foldl1 f
+> numericBinOp f []       = E.throwError $ NumArgs []
+> numericBinOp f v@(_:[]) = E.throwError $ NumArgs v
+> numericBinOp f ns       = mapM unpackNumber ns >>= return . Number . foldl1 f
 
 unpackNumber is how we get numbers out of our LispVals.
 
@@ -162,11 +170,11 @@ that to `showType`.
 
 > typeString :: [LispVal] -> Imperfect LispVal
 > typeString (v:_) = return . String $ showType v
-> typeString v     = E.throwError $ NumArgs 1 v
+> typeString v     = E.throwError $ NumArgs v 
 
 To implement proper errors, we'll need a LispError.
 
-> data LispError = NumArgs Integer [LispVal]
+> data LispError = NumArgs [LispVal]
 >                | TypeMismatch String LispVal
 >                | Syntax P.ParseError
 >                | BadSpecialForm String LispVal
@@ -180,8 +188,8 @@ Errors should be displayable:
 > showError (UnboundVar m v)      = m ++ ": " ++ v
 > showError (BadSpecialForm m f)  = m ++ ": " ++ show f
 > showError (NotFunction m f)     = m ++ ": " ++ show f 
-> showError (NumArgs e args)      = "Expected " ++ show e ++ " args, given " 
->                                               ++ unwordsList args 
+> showError (NumArgs args)        = "Invalid number of arguments: "
+>                                ++ show (length args)
 > showError (TypeMismatch e have) = "Type mismatch: the value "
 >                                ++ show have ++ " (type: " ++ showType have
 >                                ++ ") is not of type " ++ e
