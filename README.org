@@ -8,4 +8,5 @@
   Hemera is the Greek goddess of the day, which is a funny joke because
   this is all done at night.
 
-
+  It's also strongly influenced in its behaviour by Common Lisp, whose
+  notable imprint at this early stage is providing better error messages.
