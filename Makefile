@@ -11,3 +11,6 @@ show-source:
 clean:
 	cabal clean
 
+repl:
+	cabal repl
+

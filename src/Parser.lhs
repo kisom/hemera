@@ -1,5 +1,6 @@
 > module Parser (
 >   readExpr
+>  ,parseLisp
 > ) where
 
 > import Control.Applicative ((<$>))
@@ -19,6 +20,11 @@ that occurred or whether a value was successfully parsed.
 > readExpr input = case parse parseExpr "lisp" input of
 >     Left err  -> "No match: " ++ show err
 >     Right val -> "Found value " ++ show val
+
+> parseLisp :: String -> Either String Scheme.LispVal
+> parseLisp input = case parse parseExpr "lisp" input of
+>     Left  err -> Left $ show err
+>     Right val -> Right val
 
 If we encounter a space, we should use the Parsec skipMany1 to eat
 them all.
@@ -88,7 +94,7 @@ elements in the list by a '.'
 A list is either a proper or improper (dotted) list.
 
 > parseList = between (char '(') (char ')') $ tryList
->   where tryList = try parseDottedList <|> parseList
+>   where tryList = try parseDottedList <|> parseProperList
 
 The quote syntactic sugar is a Scheme expression prefaced by a quote
 character.
