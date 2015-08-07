@@ -22,9 +22,9 @@ that occurred or whether a value was successfully parsed.
 >     Left err  -> E.throwError $ Scheme.Syntax err
 >     Right val -> return val
 
-> parseLisp :: String -> Either String Scheme.LispVal
+> parseLisp :: String -> Scheme.Imperfect Scheme.LispVal
 > parseLisp input = case parse parseExpr "lisp" input of
->     Left  err -> Left $ show err
+>     Left  err -> E.throwError $ Scheme.Syntax err
 >     Right val -> Right val
 
 If we encounter a space, we should use the Parsec skipMany1 to eat
