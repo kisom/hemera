@@ -1,6 +1,6 @@
 > module Parser (
->   readExpr
->  ,parseLisp
+>     readExpr
+>   , parseLisp
 > ) where
 
 > import Control.Applicative ((<$>))
@@ -16,10 +16,10 @@
 Reading an expression returns a `String` for now: either the error
 that occurred or whether a value was successfully parsed.
 
-> readExpr :: String -> String
+> readExpr :: String -> Scheme.LispVal
 > readExpr input = case parse parseExpr "lisp" input of
->     Left err  -> "No match: " ++ show err
->     Right val -> "Found value " ++ show val
+>     Left err  -> Scheme.String $ "No match: " ++ show err
+>     Right val -> val
 
 > parseLisp :: String -> Either String Scheme.LispVal
 > parseLisp input = case parse parseExpr "lisp" input of

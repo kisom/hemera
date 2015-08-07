@@ -6,11 +6,8 @@ For now, main just needs to read arguments from the input and parse
 them.
 
 > main :: IO ()
-> main = do 
->         args <- Env.getArgs
->         case args of
->             (expr:_) -> putStrLn (Parser.readExpr expr)
->             _        -> return ()
+> main = Env.getArgs >>= mapM_ rep
+>     where rep = print . Scheme.eval . Parser.readExpr
 
 To aid in testing, here's a function that will apply the parser to all
 of its args.
