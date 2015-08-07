@@ -69,12 +69,12 @@ A number is a sequence (e.g., `many1`) of digits.
 > parseNumber = many1 digit
 >     >>= return . Scheme.Number . read
 
-A list is a series of expressions separated by a list. The outer
-parens will be captured by the caller as the same context could
-represent a dotted list.
+A proper list is a series of expressions separated by spaces. The outer
+parens will be captured by the caller as the same context could represent
+a dotted list.
 
-> parseList :: Parser Scheme.LispVal
-> parseList =  Scheme.List <$> sepBy parseExpr spaces
+> parseProperList :: Parser Scheme.LispVal
+> parseProperList =  Scheme.List <$> sepBy parseExpr spaces
 
 A dotted list has the final (tail) element separated from the other
 elements in the list by a '.'
@@ -84,6 +84,11 @@ elements in the list by a '.'
 >     head <- endBy parseExpr spaces
 >     tail <- char '.' >> spaces >> parseExpr
 >     return $ Scheme.DottedList head tail
+
+A list is either a proper or improper (dotted) list.
+
+> parseList = between (char '(') (char ')') $ tryList
+>   where tryList = try parseDottedList <|> parseList
 
 The quote syntactic sugar is a Scheme expression prefaced by a quote
 character.
@@ -102,7 +107,5 @@ a given string.
 >          <|> parseString
 >          <|> parseNumber
 >          <|> parseQuoted
->          <|> do char '('
->                 x <- try parseList <|> parseDottedList
->                 char ')'
->                 return x
+>          <|> parseList
+
