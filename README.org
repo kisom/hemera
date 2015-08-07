@@ -1,0 +1,11 @@
+#+TITLE
+
+* Hemera, or a Haskell Scheme
+
+  Hemera is my implementation of the Scheme from Write Yourself a Scheme
+  in 48 Hours.
+
+  Hemera is the Greek goddess of the day, which is a funny joke because
+  this is all done at night.
+
+
