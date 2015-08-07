@@ -70,15 +70,21 @@ With `showVal`, `LispVal` can be made to satisfy the `Show` interface:
 Evaluation for the primitive types is simple: return the primitive itself.
 
 > eval :: LispVal -> Imperfect LispVal
-> eval v@(String _)             = return v
-> eval v@(Atom _)               = return v
-> eval v@(Number _)             = return v
-> eval v@(Bool _)               = return v
-> eval (List [Atom "quote", v]) = return v
-> eval (List (Atom f:args))     = mapM eval args >>= apply f
-> eval badForm                  = E.throwError
->                               $ BadSpecialForm "Unrecognised special form"
->                                 badForm
+> eval v@(String _)                = return v
+> eval v@(Atom _)                  = return v
+> eval v@(Number _)                = return v
+> eval v@(Bool _)                  = return v
+> eval (List [Atom "if", p, t, f]) =
+>     do
+>         result <- eval p
+>         case result of
+>             (Bool False) -> eval f
+>             _            -> eval t
+> eval (List [Atom "quote", v])    = return v
+> eval (List (Atom f:args))        = mapM eval args >>= apply f
+> eval badForm                     = E.throwError
+>                                  $ BadSpecialForm "Unrecognised special form"
+>                                    badForm
 
 Evaluation requires the apply function: we need a way to apply a function to some
 arguments. An Atom contains a string with the name of the function, so lookup
@@ -92,7 +98,9 @@ needs to return a function corresponding to the string.
 primitives is a mapping of string names to all the builtin functions:
 
 > primitives :: [(String, [LispVal] -> Imperfect LispVal)]
-> primitives = [("+",              numericOp0 (+) 0)
+> primitives = [
+>               ("not",            boolNot)
+>              ,("+",              numericOp0 (+) 0)
 >              ,("-",              numericBinOp (-))
 >              ,("*",              numericOp0 (*) 1)
 >              ,("/",              numericBinOp div)
@@ -107,7 +115,28 @@ primitives is a mapping of string names to all the builtin functions:
 >              ,("symbol->string", symbolToString)
 >              ,("string->symbol", stringToSymbol)
 >              ,("type-of",        typeString)
+>              ,("=",              numBoolBinOp (==))
+>              ,(">",              numBoolBinOp (>))
+>              ,("<",              numBoolBinOp (<))
+>              ,("/=",             numBoolBinOp (/=))
+>              ,(">=",             numBoolBinOp (>=))
+>              ,("<=",             numBoolBinOp (<=))
+>              ,("or",             boolBoolBinOp (||))
+>              ,("and",            boolBoolBinOp (&&))
+>              ,("string=",        stringBoolBinOp (==))
+>              ,("string<",        stringBoolBinOp (<))
+>              ,("string>",        stringBoolBinOp (>))
+>              ,("string<=",       stringBoolBinOp (>=))
+>              ,("string>=",       stringBoolBinOp (<=))
 >              ]
+
+boolNot is a logical inversion:
+
+> boolNot :: [LispVal] -> Imperfect LispVal
+> boolNot (Bool True:[])  = return $ Bool False
+> boolNot (Bool False:[]) = return $ Bool True
+> boolNot (v:[])          = E.throwError $ TypeMismatch (showType (Bool True)) v
+> boolNot v               = E.throwError $ NumArgs v
 
 numericOp0 is a function to apply a numeric function to list of zero
 or more arguments.
@@ -171,6 +200,40 @@ that to `showType`.
 > typeString :: [LispVal] -> Imperfect LispVal
 > typeString (v:_) = return . String $ showType v
 > typeString v     = E.throwError $ NumArgs v 
+
+Implementing the numeric boolean operations requires some helpers; a general
+boolean function that performs some function `f` on a pair of arguments, using
+an unpacker `u` to extract the relevant value from the function.
+
+> boolBinOp :: (LispVal -> Imperfect a)
+>           -> (a -> a -> Bool)
+>           -> [LispVal]
+>           -> Imperfect LispVal
+> boolBinOp u f args = if length args /= 2
+>                         then E.throwError $ NumArgs args
+>                         else do
+>                              left  <- u $ args !! 0
+>                              right <- u $ args !! 1
+>                              return $ Bool $ f left right
+
+There's already a numeric unpacker (`unpackNumber`); we need to write one
+for strings and booleans as well, now.
+
+> unpackString :: LispVal -> Imperfect String
+> unpackString (String s) = return s
+> unpackString v          = E.throwError $ TypeMismatch "string" v
+
+> unpackBool :: LispVal -> Imperfect Bool
+> unpackBool (Bool v) = return v
+> unpackBool v        = E.throwError $ TypeMismatch "boolean" v
+
+Now the binary boolean operation functions can be specified.
+
+> numBoolBinOp    = boolBinOp unpackNumber
+> stringBoolBinOp = boolBinOp unpackString
+> boolBoolBinOp   = boolBinOp unpackBool
+
+-------------------------------------------------------------------------------
 
 To implement proper errors, we'll need a LispError.
 
