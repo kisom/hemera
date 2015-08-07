@@ -4,14 +4,14 @@ let
 
   inherit (nixpkgs) pkgs;
 
-  f = { mkDerivation, base, parsec, stdenv }:
+  f = { mkDerivation, base, mtl, parsec, stdenv, transformers }:
       mkDerivation {
         pname = "hemera";
         version = "0.1.0.0";
         src = ./.;
         isLibrary = false;
         isExecutable = true;
-        buildDepends = [ base parsec ];
+        buildDepends = [ base mtl parsec transformers ];
         description = "Hemera is a simple Scheme implemented in Haskell";
         license = stdenv.lib.licenses.mit;
       };
