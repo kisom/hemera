@@ -5,8 +5,8 @@
 > import qualified Parser
 > import qualified Scheme
 
-For now, main just needs to read arguments from the input and parse
-them.
+The main loop should run a REPL if no arguments are provided, or
+if given a file name as an argument, it should evaluate that file.
 
 > main :: IO ()
 > main = do
@@ -17,7 +17,7 @@ them.
 >              case arg of
 >                   "-h" -> putStrLn "Start a REPL with `./hemera`" >>
 >                           putStrLn "Run a source file with `./hemera [path]`"
->                   path -> readFile path >>= evalAndPrint
+>                   path -> readFile path >>= evalLines
 
 Strings are generally buffered to standard output; `prnFlush` will
 print a string and immediately flush the buffer, ensuring the string is
@@ -59,5 +59,8 @@ monadic conventions that repeat but don't return a value.
 > repl :: IO ()
 > repl = until_ (== ":q") (readPrompt "Hemera> ") evalAndPrint
 
-Time to parse a file:
+evalLines splits a string into lines, such as those that come from a
+file, and evaluates them.
 
+> evalLines :: String -> IO ()
+> evalLines = M.mapM_ evalAndPrint . lines
