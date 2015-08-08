@@ -1,3 +1,4 @@
+> {-# LANGUAGE ExistentialQuantification #-}
 > module Scheme (
 >     LispVal(..)
 >   , LispError(..)
@@ -11,6 +12,7 @@
 `Control.Monad.Error` provides the error and exception tools Hemera will
 use for signalling errors.
 
+> import qualified Control.Monad as M
 > import qualified Control.Monad.Error as E
 > import qualified Text.ParserCombinators.Parsec as P (ParseError)
 
@@ -31,11 +33,6 @@ The core Lisp values are:
 >              | Bool Bool
 >     deriving (Read)
 
-The nil value is important in Scheme:
-
-> nil :: LispVal
-> nil = Atom "nil"
-
 It's useful to be able to print out the value of a `LispVal`:
 
 > showVal :: LispVal -> String
@@ -45,7 +42,7 @@ It's useful to be able to print out the value of a `LispVal`:
 > showVal (Bool True)      = "#t"
 > showVal (Bool _)         = "#f"
 > showVal (List lst)       = "(" ++ unwordsList lst ++ ")"
-> showVal (DottedList h t) = "(" ++ unwordsList h ++ "." ++ showVal t ++ ")"
+> showVal (DottedList h t) = "(" ++ unwordsList h ++ " . " ++ showVal t ++ ")"
 
 Also useful to show the type of a thing:
 
@@ -79,7 +76,8 @@ Evaluation for the primitive types is simple: return the primitive itself.
 >         result <- eval p
 >         case result of
 >             (Bool False) -> eval f
->             _            -> eval t
+>             (Bool True)  -> eval t
+>             v            -> E.throwError $ TypeMismatch "boolean" v
 > eval (List [Atom "quote", v])    = return v
 > eval (List (Atom f:args))        = mapM eval args >>= apply f
 > eval badForm                     = E.throwError
@@ -100,6 +98,10 @@ primitives is a mapping of string names to all the builtin functions:
 > primitives :: [(String, [LispVal] -> Imperfect LispVal)]
 > primitives = [
 >               ("not",            boolNot)
+>              ,("cons",           cons)
+>              ,("car",            car)
+>              ,("cdr",            cdr)
+>              ,("list",           list)
 >              ,("+",              numericOp0 (+) 0)
 >              ,("-",              numericBinOp (-))
 >              ,("*",              numericOp0 (*) 1)
@@ -128,6 +130,9 @@ primitives is a mapping of string names to all the builtin functions:
 >              ,("string>",        stringBoolBinOp (>))
 >              ,("string<=",       stringBoolBinOp (>=))
 >              ,("string>=",       stringBoolBinOp (<=))
+>              ,("eq?",            eqv)
+>              ,("eqv?",           eqv)
+>              ,("equal?",         equal)
 >              ]
 
 boolNot is a logical inversion:
@@ -179,7 +184,6 @@ We also want to permit checking the types of values:
 > isList _                     = return $ Bool False
 >
 > isNull :: [LispVal] -> Imperfect LispVal
-> isNull (Atom "nil":[]) = return $ Bool True
 > isNull (List []:[])    = return $ Bool True
 > isNull _               = return $ Bool False
 
@@ -232,6 +236,79 @@ Now the binary boolean operation functions can be specified.
 > numBoolBinOp    = boolBinOp unpackNumber
 > stringBoolBinOp = boolBinOp unpackString
 > boolBoolBinOp   = boolBinOp unpackBool
+
+It wouldn't be a Lisp without car, cons, and cdr:
+
+> car :: [LispVal] -> Imperfect LispVal
+> car [List (x : xs)]       = return x
+> car [DottedList (x:xs) _] = return x
+> car [v]                   = E.throwError $ TypeMismatch "cons" v
+> car v                     = E.throwError $ NumArgs v
+
+> cdr :: [LispVal] -> Imperfect LispVal
+> cdr [List (x : xs)]         = return $ List xs
+> cdr [DottedList [_] x]      = return x
+> cdr [DottedList (_ : xs) x] = return $ DottedList xs x
+> cdr [v]                     = E.throwError $ TypeMismatch "cons" v
+> cdr v                       = E.throwError $ NumArgs v
+
+> cons :: [LispVal] -> Imperfect LispVal
+> cons [v, List []]        = return $ List [v]
+> cons [v, List vs]        = return $ List (v : vs)
+> cons [v, DottedList h t] = return $ DottedList (v:h) t
+> cons [v1, v2]            = return $ DottedList [v1] v2
+> cons v                   = E.throwError $ NumArgs v
+
+The `list` function will be useful too:
+
+> list :: [LispVal] -> Imperfect LispVal
+> list v = return $ List v
+
+The equality functions `eq?` and `eqv?` are the slower equality functions
+that return #t if their arguments print the same.
+
+> eqv :: [LispVal] -> Imperfect LispVal
+> eqv [(Bool v1), (Bool v2)]     = return $ Bool $ v1 == v2
+> eqv [(Number v1), (Number v2)] = return $ Bool $ v1 == v2
+> eqv [(String v1), (String v2)] = return $ Bool $ v1 == v2
+> eqv [(Atom v1), (Atom v2)]     = return $ Bool $ v1 == v2
+> eqv [(DottedList xs x),
+>      (DottedList ys y)]        = eqv [List $ xs ++ [x],
+>                                       List $ ys ++ [y]]
+> eqv [(List l1), (List l2)]     = return $ Bool $ (length l1 == length l2) &&
+>                                                  (all eqvPair $ zip l1 l2)
+>   where eqvPair (a, b) = case eqv [a, b] of
+>                            Left err         -> False
+>                            Right (Bool val) -> val
+> eqv [_, _]                     = return $ Bool False
+> eqv v                          = E.throwError $ NumArgs v
+
+Implementing "equal?", which does equality like JavaScript does equality,
+requires the existential types extension to use heterogenous lists.
+
+> data Unpacker = forall a. Eq a => AnyUnpacker (LispVal -> Imperfect a)
+
+This adds the constraint that a must be an instance of the `Eq`
+typeclass. The unpackEquals helper will exploit this behaviour.
+
+> unpackEquals :: LispVal -> LispVal -> Unpacker -> Imperfect Bool
+> unpackEquals v1 v2 (AnyUnpacker u) =
+>              do u1 <- u v1
+>                 u2 <- u v2
+>                 return $ u1 == u2
+>        `E.catchError` (const $ return False)
+
+equal can be written in terms of these functions:
+
+> equal :: [LispVal] -> Imperfect LispVal
+> equal [v1, v2] = do
+>     primEq <- M.liftM or $ M.mapM (unpackEquals v1 v2)
+>               [AnyUnpacker unpackNumber
+>               ,AnyUnpacker unpackString
+>               ,AnyUnpacker unpackBool]
+>     eqvEquals <- eqv [v1, v2]
+>     return $ Bool $ (primEq || let (Bool x) = eqvEquals in x)
+> equal v        = E.throwError $ NumArgs v
 
 -------------------------------------------------------------------------------
 

@@ -1,5 +1,7 @@
+> import Control.Applicative
 > import qualified Control.Monad as M
 > import qualified System.Environment as Env
+> import qualified System.IO as IO
 > import qualified Parser
 > import qualified Scheme
 
@@ -7,19 +9,55 @@ For now, main just needs to read arguments from the input and parse
 them.
 
 > main :: IO ()
-> main = evalStrings <$> Env.getArgs >>= M.mapM_ stringOut
+> main = do
+>     args <- Env.getArgs
+>     case length args of
+>         0 -> repl
+>         1 -> let arg = args !! 0 in
+>              case arg of
+>                   "-h" -> putStrLn "Start a REPL with `./hemera`" >>
+>                           putStrLn "Run a source file with `./hemera [path]`"
+>                   path -> readFile path >>= evalAndPrint
 
-To aid in testing, here's a function that will apply the parser to all
-of its args.
+Strings are generally buffered to standard output; `prnFlush` will
+print a string and immediately flush the buffer, ensuring the string is
+printed immediately.
 
-> parseStrings :: [String] -> [Scheme.Imperfect Scheme.LispVal]
-> parseStrings = map Parser.parseLisp
+> prnFlush :: String -> IO ()
+> prnFlush s = putStr s >> IO.hFlush IO.stdout
 
-Following on, evaluating a list of strings:
+This is useful in getting reading a line of input from the user:
 
-> evalStrings :: [String] -> [Scheme.Imperfect Scheme.LispVal]
-> evalStrings = map (\s -> Parser.parseLisp s >>= Scheme.eval)
+> readPrompt :: String -> IO String
+> readPrompt prompt = prnFlush prompt >> IO.getLine
 
-> stringOut :: Scheme.Imperfect Scheme.LispVal -> IO ()
-> stringOut (Left e)  = putStrLn $ show e
-> stringOut (Right v) = putStrLn $ show v
+That's the 'R' in REPL. Now for the 'E':
+
+> evalString :: String -> IO String
+> evalString expr = return $ Scheme.extractValue
+>                          $ Scheme.trapError (M.liftM show $
+>                            Parser.readExpr expr >>= Scheme.eval)
+
+Followed by the 'P':
+
+> evalAndPrint :: String -> IO ()
+> evalAndPrint ""   = return ()
+> evalAndPrint expr = evalString expr >>= putStrLn
+
+Finally, time to build the 'L':
+
+> until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
+> until_ pred prompt action = do
+>     result <- prompt
+>     if pred result
+>        then return ()
+>        else action result >> until_ pred prompt action
+
+Style note: adding an underscore to the name is a naming convention for
+monadic conventions that repeat but don't return a value.
+
+> repl :: IO ()
+> repl = until_ (== ":q") (readPrompt "Hemera> ") evalAndPrint
+
+Time to parse a file:
+

@@ -33,6 +33,17 @@ them all.
 > spaces :: Parser ()
 > spaces = skipMany1 space
 
+Comments are also useful to skip over.
+
+> comment :: Parser ()
+> comment = skipMany1 p
+>     where p = char ';' >> many (noneOf "\n") >> newline 
+
+We can combine these into a skipping skipper.
+
+> skip :: Parser ()
+> skip = spaces
+
 Sometimes, it's useful to convert a single character to a string.
 
 > parserCharToString :: Parser Char -> Parser String
@@ -81,15 +92,15 @@ parens will be captured by the caller as the same context could represent
 a dotted list.
 
 > parseProperList :: Parser Scheme.LispVal
-> parseProperList =  Scheme.List <$> sepBy parseExpr spaces
+> parseProperList =  Scheme.List <$> sepBy parseExpr skip
 
 A dotted list has the final (tail) element separated from the other
 elements in the list by a '.'
 
 > parseDottedList :: Parser Scheme.LispVal
 > parseDottedList = do
->     head <- endBy parseExpr spaces
->     tail <- char '.' >> spaces >> parseExpr
+>     head <- endBy parseExpr skip
+>     tail <- char '.' >> skip >> parseExpr
 >     return $ Scheme.DottedList head tail
 
 A list is either a proper or improper (dotted) list.

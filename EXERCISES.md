@@ -6,7 +6,7 @@
     followed by a quote mark.
 [X] Modify the previous exercise to support \n, \r, \t, \\, and any other
     desired escape characters
-[ ] parseExpr: Instead of using the try combinator, left-factor the
+[X] parseExpr: Instead of using the try combinator, left-factor the
     grammar so that the common subsequence is its own parser. You
     should end up with a parser that matches a string of expressions,
     and one that matches either nothing or a dot and a single
@@ -14,3 +14,7 @@
     List or a DottedList is left as a (somewhat tricky) exercise for
     the reader: you may want to break it out into another helper
     function.
+[ ] equal? doesn't seem to be working. Try
+        (equal? 1 "1")
+[ ] Implement cond and case.
+[ ] Add the rest of the string functions.
