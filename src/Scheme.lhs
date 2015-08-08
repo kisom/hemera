@@ -7,6 +7,10 @@
 >   , eval
 >   , trapError
 >   , extractValue
+>   , Env(..)
+>   , nullEnv
+>   , IOThrowsError(..)
+>   , liftThrows
 > ) where
 
 `Control.Monad.Error` provides the error and exception tools Hemera will
@@ -14,6 +18,7 @@ use for signalling errors.
 
 > import qualified Control.Monad as M
 > import qualified Control.Monad.Error as E
+> import qualified Data.IORef as IORef
 > import qualified Text.ParserCombinators.Parsec as P (ParseError)
 
 The core Lisp values are:
@@ -66,23 +71,29 @@ With `showVal`, `LispVal` can be made to satisfy the `Show` interface:
 
 Evaluation for the primitive types is simple: return the primitive itself.
 
-> eval :: LispVal -> Imperfect LispVal
-> eval v@(String _)                = return v
-> eval v@(Atom _)                  = return v
-> eval v@(Number _)                = return v
-> eval v@(Bool _)                  = return v
-> eval (List [Atom "if", p, t, f]) =
+> eval :: Env -> LispVal -> IOThrowsError LispVal
+> eval env v@(String _)                = return v
+> eval env v@(Atom name)               = getVar env name
+> eval env v@(Number _)                = return v
+> eval env v@(Bool _)                  = return v
+> eval env (List [Atom "quote", v])    = return v
+> eval env (List [Atom "if", p, t, f]) =
 >     do
->         result <- eval p
+>         result <- eval env p
 >         case result of
->             (Bool False) -> eval f
->             (Bool True)  -> eval t
+>             (Bool False) -> eval env f
+>             (Bool True)  -> eval env t
 >             v            -> E.throwError $ TypeMismatch "boolean" v
-> eval (List [Atom "quote", v])    = return v
-> eval (List (Atom f:args))        = mapM eval args >>= apply f
-> eval badForm                     = E.throwError
->                                  $ BadSpecialForm "Unrecognised special form"
->                                    badForm
+> eval env (List [Atom "set!",
+>                 Atom var, form])     = eval env form >>= setVar env var
+> eval env (List [Atom "define",
+>                 Atom var, form])     = eval env form >>= defineVar env var
+> eval env (List (Atom f:args))        = mapM (eval env) args
+>                                    >>= liftThrows . apply f
+> eval env badForm                     = E.throwError
+>                                      $ BadSpecialForm
+>                                        "Unrecognised special form"
+>                                        badForm
 
 Evaluation requires the apply function: we need a way to apply a function to some
 arguments. An Atom contains a string with the name of the function, so lookup
@@ -311,6 +322,8 @@ equal can be written in terms of these functions:
 > equal v        = E.throwError $ NumArgs v
 
 -------------------------------------------------------------------------------
+--------------------------[ Errors and Exceptions ]----------------------------
+-------------------------------------------------------------------------------
 
 To implement proper errors, we'll need a LispError.
 
@@ -319,13 +332,13 @@ To implement proper errors, we'll need a LispError.
 >                | Syntax P.ParseError
 >                | BadSpecialForm String LispVal
 >                | NotFunction String String
->                | UnboundVar String String
+>                | UnboundVar String
 >                | Default String
 
 Errors should be displayable:
 
 > showError :: LispError -> String
-> showError (UnboundVar m v)      = m ++ ": " ++ v
+> showError (UnboundVar v)        = "The variable " ++ v ++ " is unbounded."
 > showError (BadSpecialForm m f)  = m ++ ": " ++ show f
 > showError (NotFunction m f)     = m ++ ": " ++ show f 
 > showError (NumArgs args)        = "Invalid number of arguments: "
@@ -363,4 +376,88 @@ Hemera still needs a way to extract values from an Imperfect function:
 
 The `Left` match is left undone: this is a programmer error that should be
 caught.
+
+-------------------------------------------------------------------------------
+-------------------------[ Variables and Assignment ]--------------------------
+-------------------------------------------------------------------------------
+
+The `Env` is a mapping of strings (representing names) to mutable `LispVal`s.
+
+> type Env = IORef.IORef [(String, IORef.IORef LispVal)]
+
+Both the environment and the `LispVal`s inside are mutable: a mutable
+environment allows mappings to be added or removed, and mutable
+`LispVal`s allow the values inside to be changed.
+
+The following is a helper value to create a new environment inside the
+IO monad.
+
+> nullEnv :: IO Env
+> nullEnv = IORef.newIORef []
+
+A monad transformer will be used to handle errors inside the environment.
+
+> type IOThrowsError = E.ErrorT LispError IO
+
+In order to transform a LispError into an IOThrowsError, some lifting
+needs to be done:
+
+> liftThrows :: Imperfect a -> IOThrowsError a
+> liftThrows (Left err) = E.throwError err
+> liftThrows (Right val) = return val
+
+The `isBound` function determines whether a name is bound in an
+environment:
+
+> isBound :: Env -> String -> IO Bool
+> isBound envRef var = IORef.readIORef envRef
+>                  >>= return . maybe False (const True)
+>                    . lookup var
+
+`getVar` returns the `LispVal` bound to a var:
+
+> getVar :: Env -> String -> IOThrowsError LispVal
+> getVar envRef var = do
+>     env <- E.liftIO $ IORef.readIORef envRef
+>     maybe (E.throwError $ UnboundVar var)
+>           (E.liftIO . IORef.readIORef)
+>           (lookup var env)
+
+Correspondingly, `setVar` sets a variable.
+
+> setVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+> setVar envRef var val = do
+>     env <- E.liftIO $ IORef.readIORef envRef
+>     maybe (E.throwError $ UnboundVar var)
+>           (E.liftIO . (flip IORef.writeIORef val))
+>           (lookup var env)
+>     return val
+
+The `defineVar` function sets a value if bound, or creates a new
+binding if the var is unbound.
+
+> defineVar :: Env -> String -> LispVal -> IOThrowsError LispVal
+> defineVar envRef var val = do
+>     definedp <- E.liftIO $ isBound envRef var
+>     if definedp
+>        then setVar envRef var val
+>        else E.liftIO $ do
+>            valueRef <- IORef.newIORef val
+>            env <- IORef.readIORef envRef
+>            IORef.writeIORef envRef ((var, valueRef) : env)
+>            return val
+
+In some cases, it will be useful to bind a number of variables at
+once.
+
+> bindVars :: Env -> [(String, LispVal)] -> IO Env
+> bindVars envRef bindings = IORef.readIORef envRef
+>                        >>= extendEnv bindings
+>                        >>= IORef.newIORef
+>     where extendEnv bindings env = M.liftM (++ env)
+>                                            (M.mapM addBinding bindings)
+>           addBinding (var, val)  = do
+>               ref <- IORef.newIORef val
+>               return (var, ref)
+
 
